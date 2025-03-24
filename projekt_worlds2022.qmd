@@ -1,0 +1,341 @@
+---
+title: "Wizualizacja Turnieju 2022 League of Legends World Championship"
+subtitle: "Na podstawie danych z portalu lol.fandom"
+author: "Szymon Chruśliński"
+format: html
+self-contained: true
+echo: false
+warning: false
+message: false
+editor: visual
+---
+
+```{r}
+library(knitr)
+library(kableExtra)
+library(formattable)
+library(data.table)
+library(rvest)
+library(dplyr)
+library(tidyverse)
+library(leaflet)
+library(ggplot2)
+library(png)
+library(grid)
+library(jpeg)
+library(ggdark)
+library(ggimage)
+library(plotly)
+library(gridExtra)
+```
+
+```{r eval = FALSE}
+url <- "https://lol.fandom.com/wiki/2022_Season_World_Championship/Main_Event/Team_Rosters"
+
+page <- read_html(url)
+
+Zawodnik <- page %>% html_nodes("a.catlink-players.pWAG.pWAN.to_hasTooltip, a.mw-redirect.to_hasTooltip:not(:contains('DWG KIA'))") %>%
+  html_text()
+
+Kraj <- page %>% html_nodes("span.sprite.country-sprite") %>%
+  html_attr("title")
+
+Rola <- page %>% html_nodes("span.role-sprite") %>%
+  html_attr("title")
+
+dane <- data.frame(Kraj,Rola,Zawodnik)
+
+url2 <- "https://lol.fandom.com/wiki/2022_Season_World_Championship/Main_Event/Player_Statistics"
+
+page2 <- read_html(url2)
+
+Zawodnik2 <- page2 %>% html_nodes(".pWAN") %>% html_text()
+Zabojstwa <-  page2 %>% html_nodes("td:nth-child(7)") %>% html_text()
+Smierci <-  page2 %>% html_nodes("td:nth-child(8)") %>% html_text()
+Asysty <-  page2 %>% html_nodes("td:nth-child(9)") %>% html_text()
+Kda <-  page2 %>% html_nodes("td:nth-child(10)") %>% html_text()
+Zloto <-  page2 %>% html_nodes(".as-thousands") %>% html_text()
+Dmg <- page2 %>% html_nodes("td:nth-child(15)") %>% html_text()
+CS <- page2 %>% html_nodes("td:nth-child(11)") %>% html_text()
+
+dane_statystyki <- data.frame(Zawodnik2,Zabojstwa,Smierci,Asysty,Kda,Zloto,Dmg,CS)
+dane_statystyki$Zabojstwa <- as.numeric(dane_statystyki$Zabojstwa)
+dane_statystyki$Smierci <- as.numeric(dane_statystyki$Smierci)
+dane_statystyki$Asysty <- as.numeric(dane_statystyki$Asysty)
+dane_statystyki$Kda <- as.numeric(dane_statystyki$Kda)
+dane_statystyki$CS <- as.numeric(dane_statystyki$CS)
+dane_statystyki$Zloto <- as.integer(as.numeric(dane_statystyki$Zloto) * 1000)
+dane_statystyki$Dmg <- as.integer(as.numeric(sub("k", "", dane_statystyki$Dmg)) * 1000)
+
+write.csv(dane_statystyki, "dane_statystyki.csv", row.names = FALSE)
+
+url3 <- "https://lol.fandom.com/wiki/2022_Season_World_Championship/Main_Event/Champion_Statistics"
+
+page3 <- read_html(url3)
+
+Nazwa <- page3 %>% html_nodes(".markup-object-name") %>%
+  html_text()
+Wybieranie <- page3 %>% html_nodes(".spstats-bold~ td:nth-child(5) :nth-child(1)") %>%
+  html_text()
+Bany <- page3 %>% html_nodes(".spstats-bold+ td:nth-child(4)") %>%
+  html_text()
+
+dane_popularnosc <- data.frame(Nazwa,Wybieranie,Bany)
+dane_popularnosc$Wybieranie <- as.integer(dane_popularnosc$Wybieranie)
+dane_popularnosc$Bany <- as.integer(dane_popularnosc$Bany)
+dane_popularnosc <- mutate_all(dane_popularnosc, ~replace_na(.,0))
+
+write.csv(dane_popularnosc, "dane_popularnosc.csv", row.names = FALSE)
+```
+
+```{r eval = FALSE}
+team_divs <- page %>% html_nodes("div.wide-content-scroll")
+
+etykiety_druzyn <- c( "100 Thieves", "Cloud9", "CTBC Flying Oyster", "DRX", "DWG KIA", "EDward Gaming", "Evil Geniuses", "Fnatic", "G2 Esports", "GAM Esports", "Gen.G", "JD Gaming", "Rogue", "Royal Never Give Up", "T1", "Top Esports")
+
+nazwy_druzyn <- character()
+
+
+for (i in seq_along(team_divs))
+  {
+  roster_ids <- team_divs[[i]] %>% html_nodes("td.extended-rosters-id[rowspan='1']")
+  
+  nazwy_druzyn <- c(nazwy_druzyn, rep(etykiety_druzyn[i], length(roster_ids)))
+  }
+
+dane <- dane %>% mutate(Druzyna = nazwy_druzyn)
+
+write.csv(dane, "dane.csv", row.names = FALSE)
+
+dane_zawodnicy <- dane %>% filter(!Rola %in% c("Coach", "Assistant Coach"))
+dane_zawodnicy$Zawodnik[dane_zawodnicy$Zawodnik == "Jiejie"] <- "JieJie"
+
+write.csv(dane_zawodnicy, "dane_zawodnicy.csv", row.names = FALSE)
+```
+
+```{r}
+dane <- read.csv("dane.csv")
+dane_zawodnicy <- read.csv("dane_zawodnicy.csv")
+dane_popularnosc <- read.csv("dane_popularnosc.csv")
+dane_statystyki <- read.csv("dane_statystyki.csv")
+
+glowna_tabelka <- merge(dane_zawodnicy, dane_statystyki, by.x = "Zawodnik", by.y = "Zawodnik2", all = TRUE)
+```
+
+## League of Legends World Championship
+
+Turniej World Championship (Worlds) to coroczna impreza esportowa organizowana przez Riot Games dla gry League of Legends. Jest to najważniejsze wydarzenie w świecie profesjonalnego LoLa, gromadzące najlepsze drużyny z różnych regionów. Turniej ten ma miejsce od 2010 roku i skupia się na rywalizacji międzynarodowej, gdzie zespoły reprezentują swoje regiony, takie jak Korea, Chiny, Ameryka Północna, Europa i inne.
+
+Turniej składa się z kwalifikacji regionalnych, w których drużyny rywalizują o miejsca na Worlds, a następnie z głównej fazy, gdzie najlepsze drużyny świata walczą o tytuł mistrza. Rozgrywki odbywają się w kilku etapach, zaczynając od grupowego etapu, poprzez fazę pucharową, aż do finałów.
+
+Worlds to nie tylko walka o prestiżowy tytuł, ale także okazja do zjednoczenia społeczności LoL z całego świata, przyciągając setki milionów widzów online. Turniej znany jest również z niezapomnianych momentów, emocjonujących rozgrywek i dynamicznych strategii. Jako jedno z największych wydarzeń esportowych, Worlds przyciąga uwagę zarówno fanów gry, jak i nowych widzów, podkreślając rosnącą popularność esportu na światową skalę.
+
+### Zobaczmy jakie dane skrywa nasza tabela:
+
+```{r}
+styled_table <- glowna_tabelka %>%
+  head(15) %>%
+  kbl() %>%
+  kable_material_dark() %>%
+  kable_paper(bootstrap_options = "striped", full_width = F) %>%
+  column_spec(which(names(glowna_tabelka) == "Rola"), color = spec_color(as.numeric(factor(glowna_tabelka$Rola)), end = 1)) %>%
+  add_header_above(c("Dane Zawodnika" = 4, "Statystyki Zawodnika" = 7)) %>%
+  row_spec(0, background = "#e6e6fa") %>%
+  kable_styling(font_size = 17)
+styled_table
+```
+
+Wyjaśnijmy sobie co oznaczają niektóre mniej oczywiste dane w powyższej tabeli. W League of Legends, pozycje określają rolę gracza w drużynie i miejsce, gdzie gra na mapie. Standardowe pozycje to Top Laner (górna aleja), Jungler (dżungla), Mid Laner (środek), Bot Laner inaczej ADC, czyli Attack Damage Carry - strzelec (dolna aleja), i Support (dolna aleja). Każda pozycja ma swoje specyficzne zadania, a gracze współpracują, aby osiągnąć cel gry, którym jest zniszczenie Nexusa (głównej bazy) przeciwnika.
+
+Zabójstwa (Liczba przeciwników, których zabiłeś), Śmierci (Liczba razy, w których twoja postać została pokonana przez przeciwnika) oraz Asysty (Liczba razy, kiedy uczestniczyłeś w zabiciu przeciwnika, ale nie byłeś bezpośrednio odpowiedzialny za zakończenie jego życia) to podstawowe statystyki, które wspólnie składają się na współczynnik KDA (skrót od słów Kills, Deaths, Assists) liczony według wzoru: (Zabójstwa+Asysty)/Śmierci. Wartość KDA jest używana do oceny efektywności gracza w grze. Wyższa wartość oznacza, że gracz jest bardziej skuteczny, ponieważ dokonuje więcej zabójstw i asyst, a mniej śmierci.
+
+Oprócz nich mamy jeszcze złoto, które jest sumą zdobytego złota przez całą grę, a także DMG - suma obrażeń jakie nasza postać zadała przeciwnikom w ciągu całej rozgrywki. Ostatnim czynnikiem w tabeli jest CS, czyli liczba zabitych przez gracza stworów (specjalne potwory na mapie). Dane w tabeli są średnią przeliczoną na jedną grę każdego zawodnika.
+
+### Przyjrzyjmy się z jakich stron świata zjawili się zawodnicy:
+
+```{r}
+kraj_suma <- dane_zawodnicy %>%
+  group_by(Kraj) %>%
+  summarise(Liczba = n())
+
+tlumaczenia <- c("Australia", "Belgia", "Bułgaria", "Kanada", "Chiny", "Republika Czeska", "Dania", "Niemcy", "Grecja", "Polska", "Rumunia", "Korea Południowa", "Hiszpania", "Szwecja", "Tajwan", "Turcja", "Stany Zjednoczone", "Wietnam")
+
+kraj_suma$Kraj <- tlumaczenia
+
+wykres_kraje <- ggplot(kraj_suma, aes(x = Kraj, y = Liczba, fill = Kraj)) +
+  geom_bar(stat = "identity") +
+    scale_fill_manual(values = c("#ffaba5","#f4cccc", "#ffcd36","#ff6600", "#8fce00","#ff3366", "#ccccff","#cc9900","#DC143C", "#5b9aa0","#6600ff","#ff4032","#00cc33", "#ffccff","#3fc2d0","#990066","#3366CC","#f32edc")) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(x = "", y = "", title = "Liczba zawodników z poszczególnych krajów")
+ggplotly(wykres_kraje)
+```
+
+Bezsprzecznie najwięcej zawodników przyjechało z Korei Południowej oraz Chin, pozostałe regiony, takie jak Europa, Ameryka Północna czy inne, mają zdecydowanie mniejszy udział, co podkreśla globalną dominację chińskich i koreańskich graczy w światowym środowisku esportowym w League of Legends.
+
+Dominacja ta wynika z tego, że Korea Południowa oraz Chiny posiadają jedne z najsilniejszych lig esportowych na świecie, które są pełne utalentowanych graczy oraz oferują intensywny poziom rywalizacji, która przyczynia się do doskonalenia przez graczy swoich umiejętności, aby cały czas mogli dorównywać swoimi umiejętnościami innym. Poza tym oba te regiony zainwestowały znaczne środki w rozwój infrastruktury esportowej, zapewniając zawodnikom odpowiednie warunki do treningu.
+
+### A tak wygląda to na mapie świata:
+
+```{r}
+szerokosc <- c(-25.2744, 50.8503, 42.7339, 56.1304, 35.8617, 49.8175, 56.2639, 51.1657, 39.0742, 51.9194, 45.9432, 35.9078, 40.4637, 60.1282, 23.6978, 38.9637, 37.7749, 14.0583)
+
+dlugosc <- c(133.7751, 4.3517, 25.4858, -106.3468, 104.1954, 15.4730, 9.5018, 10.4515, 21.8243, 19.1451, 24.9668, 127.7669, -3.7492, 18.6435, 120.9605, 35.2433, -122.4194, 108.2772)
+
+mapka_dane <- data.frame(kraj_suma, szerokosc, dlugosc)
+
+kolory <- c("#ffaba5", "#f4cccc", "#ffcd36","#cc9900" ,"#ff6600", "#ff4032", "#8fce00", "#5b9aa0", "#ff3366", "#6600ff", "#00cc33", "#DC143C", "#ccccff", "#3fc2d0", "#990066", "#3366CC", "#ffccff" , "#f32edc")
+
+mapka_dane <- cbind(mapka_dane, Kolor = kolory)
+
+mapa <- leaflet(data = mapka_dane) %>%
+  setView(lng = 30, lat= 40, zoom = 1) %>%
+  addProviderTiles("CartoDB.DarkMatter") %>%
+  addCircleMarkers(
+    lng = ~dlugosc,
+    lat = ~szerokosc,
+    radius = ~sqrt(Liczba) * 6, 
+    color = ~Kolor,
+    stroke = FALSE,
+    fillOpacity = 0.6,
+    labelOptions = labelOptions(direction = "right", textsize="15px"),
+    popup = ~paste("<center>", Kraj, "<br> <center>", Liczba)
+  )
+mapa
+```
+
+Na mapie te dwa regiony zajmują praktycznie tyle samo miejsca co wszystkie pozostałe razem wzięte. To dodatkowo podkreśla ich wyjątkową pozycję i globalną dominację w świecie profesjonalnego League of Legends.
+
+### Teraz spójrzmy na statystyki w trakcie turnieju:
+
+```{r}
+tabelka_pomoc <- subset(glowna_tabelka, select = -c(Kraj, Druzyna, Zloto, Dmg))
+tabelka_pomoc <- tabelka_pomoc %>%
+  group_by(Rola) %>%
+  summarise(
+    Zabójstwa = round(mean(Zabojstwa, na.rm = TRUE), 2),
+    Śmierci = round(mean(Smierci, na.rm = TRUE), 2),
+    Asysty = round(mean(Asysty, na.rm = TRUE), 2),
+    KDA = round(mean(Kda, na.rm = TRUE), 2)
+  )
+custom_order <- c("Zabójstwa", "Śmierci", "Asysty", "KDA")
+tabelka_pomoc <- tidyr::gather(tabelka_pomoc, Statystyki, Value, -Rola)
+
+
+tabelka_pomoc$Statystyki <- factor(tabelka_pomoc$Statystyki, levels = custom_order)
+
+
+wykres_srednia <- ggplot(tabelka_pomoc, aes(x = Rola, y = Value, fill = Statystyki)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  labs(title = "Średnie wartości według roli",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = c("Zabójstwa" = "#F5DEB3",
+                               "Śmierci" = "#D2B48C",
+                               "Asysty" = "#F4A460",
+                               "KDA" = "red")) +
+  theme_minimal()
+ggplotly(wykres_srednia)
+```
+
+Na powyższym wykresie możemy zaobserwować jak zmieniają się wartości poszczególnych statystyk ze względu na to na jakiej roli gramy. Patrząc tylko na te statystyki możemy dowiedzieć się jaki styl gry przybierają zawodnicy na każdej z tych pozycji. Widać tutaj doskonale czy ktoś gra bardziej drużynowo czy może jednak skupia się na własnej linii. Możemy dowiedzieć się czy jest raczej głównym ogniwem zadającym ostateczne ciosy przeciwnikom czy może raczej służy jako pomoc.
+
+Jeżeli chodzi o zabójstwa zdecydowanie przoduje ADC oraz Mid Laner i to właśnie oni mają najwyższy współczynnik KDA. Co ciekawe w KDA niewielką różnicą ustępuje im również Support mimo iż nie posiada on prawie wogóle żadnych zabójstw, nadrabia on jednak swoją znaczącą przewagą w asystach nad wszystkimi innymi rolami. Z wykresu wynika, że Jungler to rola najbardziej zrównoważona, ma on średnią ilość zabójstw oraz asyst co skutkuje, tym że jego KDA również jest na dobrym poziomie. Najgorzej ze wszystkich roli wypada Top Laner, zawodnicy grający na tej właśnie pozycji zazwyczaj spędzają dużą część czasu na swojej linii i są raczej wycofani w stosunku do innych, dlatego właśnie nie mają tylu zabójstw i asyst a tym samym ich KDA jest znacznie niższe.
+
+KDA jest bardzo istotnym czynnikiem w dążeniu do wygranej, lecz aby zmaksymalizować swoje szanse profesjonalni gracze skupiają się także na innych aspektach gry np. zabijaniu stworów.
+
+### Wygląda to mniej więcej tak:
+
+```{r}
+wykres_kropkowy_dmg <- ggplot(glowna_tabelka, aes(x = Zloto, y = Dmg, color = Rola, label = Zawodnik)) +
+  geom_point(size = 3) +
+  labs(title = "Obrażenia w zależności od złota",
+       y = "Zadane obrażenia",
+       x = "Zarobione złoto") +
+  theme_minimal() 
+
+wykres_kropkowy_cs <- ggplot(glowna_tabelka, aes(x = CS, y = Zloto, color = Rola, label = Zawodnik)) +
+  geom_point(size = 3) +
+  labs(title = "Złoto w zależności od CS",
+       x = "Zabite miniony (CS)",
+       y = "Zarobione złoto") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+grid.arrange(wykres_kropkowy_cs, wykres_kropkowy_dmg, ncol = 2, widths = c(3, 4))
+```
+
+Jak widać gracze górnej i środkowei alei koncentrują się na zabijaniu stworów, co pozwala im na zgromadzenie dużej ilości złota. Te zasoby są następnie inwestowane w potężne przedmioty, które zwiększają umiejętność zadawania obrażeń, co jest kluczem do dominacji na mapie, a w konsekwencji zwycięstwa w grze. Jednak w zabijaniu stworów jest tylko jedna rola, która nie ma sobie równych a jest nią Bot Laner i to właśnie on zdobywa największe pokłady złota, co skutkuje poźniej tym, że to właśnie on zadaje przeciwnikom największe obrażenia. Zawodnicy na pozycji Supporta nie przykuwają uwagi do złota, ale również nie zadają dużej ilości obrażeń, im zależy tylko na wspieraniu tych którzy te obrażenia właśnie zadają. Jeżeli chodzi natomiast o Junglerów oni oprócz zabijania potworów muszą przykuć dużą część swojej uwagi na pomaganie innym dlatego też tracą na tym znaczną część swoich obrażeń.
+
+W League of Legends oprócz samej rozgrywki, duże znaczenie ma faza wyboru postaci (etap przed grą). Decyzje podjęte w tej fazie mają ogromny wpływ na przebieg meczu i mogą znacząco kształtować strategię zespołu, dlatego tak istotne jest, aby wybrać bohatera który będzie silniejszy niż inne postacie.
+
+### A tak przedstawiają się najczęściej wybierane postacie na poszczególnych pozycjach:
+
+```{r}
+top_champion <- data.frame(
+  Champion <- c("Top Laner","Jungler","Mid Laner","Bot Laner","Support"),
+  Gry_zagrane <- c(22,30,37,31,26),
+  Obrazki <- file.path("obrazki", c("aatrox_pop.png", "viego_pop.png", "azir_pop.png", "aphelios_pop.png", "nami_pop.png"))
+)
+
+image <- readJPEG("obrazki/top5.jpg")
+
+top_champion$Champion <- factor(top_champion$Champion, levels = c("Top Laner", "Jungler", "Mid Laner", "Bot Laner", "Support"))
+
+wykres_top5 <- ggplot(top_champion, aes(x = Champion, y = Gry_zagrane)) +
+  annotation_custom(rasterGrob(image, width=unit(1, "npc"), height = unit(1,"npc")))+
+  geom_bar(stat = "identity", fill = c("#2E0200","#2BAD8A","#D1A036","#2C0445","#006699"), width = 0.88) +
+  labs(title = "", x = "", y = "") +
+  theme_minimal() +
+  ylim(0, 40) +
+  geom_image(aes(image = Obrazki, y = Gry_zagrane - 6), size = 0.26) +
+dark_theme_gray() +
+  theme_minimal()
+
+wykres_top5
+```
+
+W League of Legends "meta" odnosi się do aktualnie najskuteczniejszych strategii, postaci lub elementów gry, które dominują w danym okresie. Meta jest dynamiczna, a zmiany w aktualizacjach mogą wpływać na skuteczność różnych bohaterów. Skoro te postacie (Aatrox, Viego, Azir, Aphelios i Nami) były tak chętnie wybierane oznacza to, że w aktualnej mecie były szczególnie silne i miały przewagę nad innymi.
+
+### Teraz sprawdźmy jak rozkładała się popularność danej postaci na całym turnieju:
+
+```{r}
+dane_popularnosc$Suma <- dane_popularnosc$Wybieranie + dane_popularnosc$Bany
+dane_popularnosc <- dane_popularnosc %>%
+  arrange(desc(Suma))
+
+dane_popularnosc <- head(dane_popularnosc, 10)
+
+postac <- rep(c("Aatrox","Yuumi","Sejuani","Caitlyn","Azir","Sylas","Graves","Maokai","Lucian","Viego","Aatrox","Yuumi","Sejuani","Caitlyn","Azir","Sylas","Graves","Maokai","Lucian","Viego"), times=c(22,8,30,8,37,32,25,21,26,30,58,68,42,62,29,28,34,35,29,18))
+czynnik <- rep(c("Wybieranie","Bany"), times=c(239,403))
+
+dane_barchart <- data.frame(postac,czynnik)
+
+wykres_barchart <- ggplot(dane_barchart, aes(x = postac, fill = czynnik)) +
+  geom_bar(stat = "count") +
+  scale_fill_manual(values = c("#870017", "#0094D4"))
+
+wykres_barchart <- wykres_barchart +
+  labs(title = "Wykres popularności",
+       x = "",
+       y = "Suma wystąpień")
+
+ggplotly(wykres_barchart)
+```
+
+Popularność postaci jest liczona jeśli dana postać w jakikolwiek sposób pojawi się w meczu, a zatem jest ściśle skolerowana z ilością banów oraz gier w których nią zagrano. W znacznej większości im bohater jest popularniejszy tym częściej był on banowany. Jest to w pełni zrozumiałe, gdyż zazwyczaj najpopularniejsze postacie są również najsilniejsze dlatego zawodnicy często wykluczają przeciwnikom możliwość zagrania czymś czym bez problemu mogliby ich pokonać.
+
+Jak widać popularność może wynikać z różnych powodów i nie odrazu oznacza to, że najpopularniejszą postać będziemy oglądać na turniejach najczęściej, może się zdarzyć że zobaczymy ją kilka razy na cały turniej. Taka sytuacja była czymś często spotykanym również na poprzednich turniejach League of Legends i prawdopodobnie będzie również na kolejnych.
+
+Pośród 4 najpopularniejszych postaci (Aatrox, Yuumi, Caitlyn, Sejuani) tylko 1 była najczęściej wybierana, cała reszta pomimo swojej olbrzymiej popularności i tak nie wzięła udziału w większości gier ze względu na częstotliwość ich wykluczenia z gry.
+
+### Podsumowanie
+
+-   Najwięcej zawodników pochodziło z Korei Południowej i Chin, co potwierdza ich dominację na światowej scenie League of Legends, wynikającą z rozwiniętej infrastruktury esportowej oraz wysokiego poziomu lokalnych lig.
+
+-   Statystyki graczy wyraźnie różnią się w zależności od roli, co pokazuje zróżnicowane style gry i wpływ poszczególnych pozycji na wynik meczu.
+
+-   Zależność między zabijaniem stworów, złotem a zadawanymi obrażeniami pokazuje, jak kluczową rolę w rozgrywce odgrywa efektywne farmienie, gdzie zdobyte zasoby bezpośrednio przekładają się na wpływ w walce.
+
+-   Najczęściej wybierane postacie -- Aatrox, Viego, Azir, Aphelios i Nami -- odzwierciedlają aktualną metę i pokazują, którzy bohaterowie byli w danym okresie najbardziej efektywni oraz zapewniali drużynie największą przewagę.
+
+-   Najpopularniejsze postacie turnieju, takie jak Aatrox, Yuumi, Caitlyn czy Sejuani, były częściej banowane niż wybierane, co pokazuje, że ich siła w mecie sprawiała, iż drużyny wolały je wykluczyć, niż ryzykować grę przeciwko nim.
